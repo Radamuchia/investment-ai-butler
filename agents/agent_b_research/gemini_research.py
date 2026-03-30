@@ -131,36 +131,82 @@ class GeminiResearcher:
         return report
 
     async def _enter_deep_research_mode(self, page: Page):
-        """進入 Deep Research 模式"""
-        # Deep Research 可能透過不同方式觸發，依序嘗試
-        selectors = [
-            "text=Deep Research",
-            "text=深度研究",
-            "[aria-label*='Deep Research']",
-            "[data-test-id='deep-research']",
+        """
+        進入 Deep Research 模式
+        正確流程（從截圖確認）：
+          1. 點擊輸入框底部的「工具」按鈕
+          2. 在彈出選單中點擊「Deep Research」
+        """
+
+        # ── 先確認是否已經在 Deep Research 模式 ────────────────
+        # （畫面上顯示 "Deep Research ×" chip 代表已啟用）
+        try:
+            chip = page.locator("text=Deep Research").first
+            if await chip.is_visible(timeout=2000):
+                print("[B] Deep Research 已啟用 ✅（偵測到 chip）")
+                return
+        except Exception:
+            pass
+
+        # ── Step A：點擊「工具」按鈕 ────────────────────────────
+        print("[B] 點擊「工具」按鈕...")
+        tool_selectors = [
+            "button:has-text('工具')",
+            "[aria-label*='工具']",
+            "text=工具",
         ]
 
-        for selector in selectors:
+        tool_clicked = False
+        for selector in tool_selectors:
             try:
-                element = page.locator(selector).first
-                if await element.is_visible(timeout=3000):
-                    await element.click()
-                    print(f"[B] 找到 Deep Research 入口 ✅")
-                    await page.wait_for_timeout(2000)
+                btn = page.locator(selector).first
+                if await btn.is_visible(timeout=3000):
+                    await btn.click()
+                    await page.wait_for_timeout(1000)
+                    tool_clicked = True
+                    print(f"[B] 「工具」按鈕點擊成功 ✅")
+                    break
+            except Exception:
+                continue
+
+        if not tool_clicked:
+            await page.screenshot(path=f"debug_no_tool_btn_{datetime.now().strftime('%H%M%S')}.png")
+            print("[B] ⚠️ 找不到「工具」按鈕，截圖已儲存")
+            return
+
+        # ── Step B：在選單中點擊「Deep Research」───────────────
+        print("[B] 在選單中點擊「Deep Research」...")
+        dr_selectors = [
+            "text=Deep Research",
+            "[aria-label*='Deep Research']",
+            "li:has-text('Deep Research')",
+            "div[role='menuitem']:has-text('Deep Research')",
+        ]
+
+        for selector in dr_selectors:
+            try:
+                item = page.locator(selector).first
+                if await item.is_visible(timeout=3000):
+                    await item.click()
+                    await page.wait_for_timeout(1500)
+                    print("[B] Deep Research 模式啟用 ✅")
                     return
             except Exception:
                 continue
 
-        # 如果找不到，截圖留存以便 debug
-        await page.screenshot(path=f"debug_no_deep_research_{datetime.now().strftime('%H%M%S')}.png")
-        print("[B] ⚠️ 未找到 Deep Research 入口，將以一般模式繼續（可能需要手動調整 selector）")
+        await page.screenshot(path=f"debug_no_dr_menu_{datetime.now().strftime('%H%M%S')}.png")
+        print("[B] ⚠️ 找不到選單中的 Deep Research，截圖已儲存")
 
     async def _input_prompt(self, page: Page, prompt: str):
         """在 Gemini 輸入框填入提示詞"""
+        # Deep Research 啟用後 placeholder 變成「你想研究什麼？」
+        # 優先嘗試 rich text editor，再 fallback 到一般 textarea
         input_selectors = [
+            "div[contenteditable='true'][role='textbox']",
             "div[contenteditable='true']",
             "textarea",
             "[role='textbox']",
+            "p[data-placeholder]",
         ]
 
         for selector in input_selectors:
