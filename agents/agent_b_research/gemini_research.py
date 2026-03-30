@@ -116,19 +116,79 @@ class GeminiResearcher:
         await page.goto(GEMINI_URL, wait_until="domcontentloaded")
         await page.wait_for_timeout(3000)
 
-        # ── Step 2：嘗試點擊 Deep Research 模式 ─────────────
-        print(f"[B] Step 2：尋找 Deep Research 入口...")
+        # ── Step 2：確認使用 PRO 模式（非快捷/複雜）────────────
+        print(f"[B] Step 2：確認 PRO 模式...")
+        await self._ensure_pro_mode(page)
+
+        # ── Step 3：進入 Deep Research 模式 ─────────────────
+        print(f"[B] Step 3：啟動 Deep Research...")
         await self._enter_deep_research_mode(page)
 
-        # ── Step 3：輸入研究提示詞 ──────────────────────────
-        print(f"[B] Step 3：輸入研究提示詞...")
+        # ── Step 4：輸入研究提示詞 ──────────────────────────
+        print(f"[B] Step 4：輸入研究提示詞...")
         await self._input_prompt(page, prompt)
 
-        # ── Step 4：等待報告生成 ─────────────────────────────
-        print(f"[B] Step 4：等待 Deep Research 生成中（最長 {RESEARCH_TIMEOUT//1000} 秒）...")
+        # ── Step 5：等待研究計畫出現並確認，再等最終報告 ────────
+        print(f"[B] Step 5：等待 Deep Research 完成（約 10~15 分鐘）...")
         report = await self._wait_for_report(page)
 
         return report
+
+    async def _ensure_pro_mode(self, page: Page):
+        """
+        確認目前使用 PRO 模式
+        模式順序（用戶確認）：快捷 > 思考型 > pro
+        切換方式：點擊模式按鈕 → ArrowDown × 2 → Enter
+        注意：此 dropdown 只能用 ArrowDown，不能用 Tab
+        """
+        # 取得目前模式文字
+        current_mode = await page.evaluate("""
+            () => {
+                const btn = document.querySelector('[data-test-id="bard-mode-menu-button"]');
+                return btn ? btn.textContent.trim() : null;
+            }
+        """)
+        print(f"[B] 目前模式：{current_mode}")
+
+        # 已是 PRO 則跳過
+        pro_keywords = ['pro', 'Pro', 'PRO', '2.5']
+        if current_mode and any(kw in current_mode for kw in pro_keywords):
+            print("[B] 已是 PRO 模式 ✅")
+            return
+
+        # 點擊模式選擇器按鈕（用座標點擊確保精準）
+        print("[B] 切換至 PRO 模式（快捷 → ↓ → 思考型 → ↓ → pro）...")
+        mode_pos = await page.evaluate("""
+            () => {
+                const btn = document.querySelector('[data-test-id="bard-mode-menu-button"]');
+                if (!btn) return null;
+                const r = btn.getBoundingClientRect();
+                return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+            }
+        """)
+
+        if not mode_pos:
+            print("[B] ⚠️ 找不到模式選擇器，略過")
+            return
+
+        await page.mouse.click(mode_pos['x'], mode_pos['y'])
+        await page.wait_for_timeout(1500)
+
+        # 方法 A：ArrowDown × 2 → Enter（快捷 → 思考型 → pro）
+        for _ in range(2):
+            await page.keyboard.press("ArrowDown")
+            await page.wait_for_timeout(400)
+        await page.keyboard.press("Enter")
+        await page.wait_for_timeout(1500)
+
+        # 確認切換成功
+        new_mode = await page.evaluate("""
+            () => {
+                const btn = document.querySelector('[data-test-id="bard-mode-menu-button"]');
+                return btn ? btn.textContent.trim() : null;
+            }
+        """)
+        print(f"[B] 切換後模式：{new_mode} ✅")
 
     async def _enter_deep_research_mode(self, page: Page):
         """
@@ -247,38 +307,102 @@ class GeminiResearcher:
         raise Exception("找不到 Gemini 輸入框")
 
     async def _wait_for_report(self, page: Page) -> str:
-        """等待報告生成並擷取內容"""
+        """
+        等待 Deep Research 完成並擷取最終報告
 
-        # 等待「生成中」狀態消失（代表完成）
-        loading_selectors = [
-            "[aria-label*='loading']",
-            "[data-test-id='loading']",
-            "text=研究中",
-            "text=Researching",
-        ]
+        Deep Research 的生命週期：
+          Phase 1（約 10 秒）：顯示「研究計畫」（研究網站清單）→ 不是最終報告
+          Phase 2（約 5~10 分鐘）：實際研究進行中（頁面有 loading 動畫）
+          Phase 3：研究完成，顯示完整報告 → 這才是我們要的
 
-        # 先等待載入開始
-        await page.wait_for_timeout(5000)
+        判斷完成的依據：
+          - 頁面上不再有「正在研究」、「研究網站」等進行中文字
+          - 回應內容超過 2000 字（計畫只有幾百字，報告通常數千字）
+        """
 
-        # 持續檢查是否完成
+        # ── Phase 1：等待研究計畫出現，並自動點擊「確認」─────────
+        print("[B] 等待 Deep Research 研究計畫出現...")
+        await page.wait_for_timeout(8000)
+
+        # 自動點擊「開始研究」按鈕（計畫出現後才需點擊才會開始研究）
+        # 用戶確認按鈕文字為「開始研究」
+        confirmed = await page.evaluate("""
+            () => {
+                const buttons = [...document.querySelectorAll('button, [role="button"]')];
+                // 優先順序：開始研究 > Start research > 確認 > 繼續
+                const confirmTexts = ['開始研究', 'Start research', '確認', 'Confirm', '繼續'];
+                for (const ct of confirmTexts) {
+                    for (const btn of buttons) {
+                        const t = btn.textContent.trim();
+                        if (t.includes(ct) && btn.getBoundingClientRect().width > 0) {
+                            btn.click();
+                            return t;
+                        }
+                    }
+                }
+                return null;
+            }
+        """)
+
+        if confirmed:
+            print(f"[B] 已點擊確認按鈕：「{confirmed}」✅，開始真正研究...")
+            await page.wait_for_timeout(3000)
+        else:
+            print("[B] 未找到確認按鈕（可能不需要確認），繼續等待...")
+
+        # ── Phase 2：等待完成通知，每 30 秒檢查一次 ─────────────
+        # Deep Research 需要 10~15 分鐘，完成後會有通知
         max_wait = RESEARCH_TIMEOUT
-        interval = 10000  # 每 10 秒檢查一次
+        interval = 30000   # 每 30 秒檢查一次
         elapsed = 0
 
         while elapsed < max_wait:
             await page.wait_for_timeout(interval)
             elapsed += interval
-
             minutes = elapsed // 60000
             seconds = (elapsed % 60000) // 1000
-            print(f"[B] 等待中... {minutes}分{seconds}秒")
 
-            # 嘗試擷取報告內容
+            # 偵測完成通知 或 loading 消失
+            status = await page.evaluate("""
+                () => {
+                    const text = document.body.innerText || '';
+
+                    // 仍在研究中的關鍵字
+                    const busyKw = ['研究網站', 'Researching', '正在研究', '搜尋中', 'Searching'];
+                    const isBusy = busyKw.some(kw => text.includes(kw));
+
+                    // 完成通知的關鍵字
+                    const doneKw = ['研究完成', '已完成', 'Research complete', '查看報告'];
+                    const isDone = doneKw.some(kw => text.includes(kw));
+
+                    // 檢查 loading 動畫是否還在
+                    const hasLoader = document.querySelector(
+                        '[aria-label*="loading"], [class*="loading"], [class*="spinner"]'
+                    );
+
+                    return { isBusy, isDone, hasLoader: !!hasLoader };
+                }
+            """)
+
+            if status['isDone']:
+                print(f"[B] ✅ 偵測到完成通知！（{minutes}分{seconds}秒）")
+                await page.wait_for_timeout(2000)
+                break
+
+            if status['isBusy'] or status['hasLoader']:
+                print(f"[B] 研究進行中... {minutes}分{seconds}秒（預計 10~15 分鐘）")
+                continue
+
+            # 無 loading 也無完成通知 → 嘗試擷取看字數
             content = await self._extract_report(page)
-            if content and len(content) > 200:
+            if content and len(content) > 2000:
+                print(f"[B] ✅ 報告完成（{len(content)} 字，{minutes}分{seconds}秒）")
                 return content
 
-        # 超時仍嘗試擷取
+            print(f"[B] 等待中... {minutes}分{seconds}秒")
+
+        # 擷取最終報告
+        print("[B] 擷取最終報告...")
         content = await self._extract_report(page)
         if content:
             return content
