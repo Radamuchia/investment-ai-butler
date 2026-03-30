@@ -326,12 +326,12 @@ class GeminiResearcher:
 
         # ── 點擊空白處重置 Tab 焦點，再 Tab × 7 → Enter 選到「開始研究」──
         # 用戶確認：點空白處後按 Tab 7 次可選到「開始研究」
-        print("[B] 點擊空白處重置焦點...")
-        await page.mouse.click(100, 300)   # 左側空白區域
+        print("[B] 點擊 (740, 360) 重置焦點...")
+        await page.mouse.click(740, 360)   # 用戶確認的空白重置點
         await page.wait_for_timeout(500)
 
-        print("[B] Tab × 7 → Enter 選取「開始研究」...")
-        for i in range(7):
+        print("[B] Tab × 6 → Enter 選取「開始研究」...")
+        for i in range(6):
             await page.keyboard.press("Tab")
             await page.wait_for_timeout(300)
         await page.keyboard.press("Enter")
