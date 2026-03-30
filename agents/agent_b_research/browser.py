@@ -1,17 +1,16 @@
 """
 Agent B — 瀏覽器管理模組
-使用你現有的 Chrome 登入狀態，不需要重新登入 Gemini
+使用 Playwright 專屬 Chrome 個人資料夾，第一次需手動登入 Gemini
 """
 
 import os
 from playwright.async_api import async_playwright, Browser, BrowserContext, Page
 
-# Chrome 用戶資料路徑（macOS 預設）
-CHROME_USER_DATA_DIR = os.getenv(
-    "CHROME_USER_DATA_DIR",
-    os.path.expanduser("~/Library/Application Support/Google/Chrome")
+# Playwright 專屬 Chrome 資料夾（不與系統 Chrome 衝突）
+PLAYWRIGHT_PROFILE_DIR = os.getenv(
+    "PLAYWRIGHT_PROFILE_DIR",
+    os.path.expanduser("~/Documents/investment-ai-butler-agent-b/.chrome-profile")
 )
-CHROME_PROFILE = os.getenv("CHROME_PROFILE", "Default")
 HEADLESS = os.getenv("HEADLESS", "false").lower() == "true"
 
 
@@ -24,19 +23,27 @@ class BrowserManager:
         self._context: BrowserContext = None
 
     async def start(self):
-        """啟動瀏覽器，繼承現有 Chrome 登入狀態"""
+        """
+        啟動瀏覽器
+        - 第一次執行：Chrome 開啟後請手動登入 Google / Gemini
+        - 之後執行：自動讀取已儲存的登入狀態
+        """
         self._playwright = await async_playwright().start()
 
-        print(f"[B] 啟動 Chrome（headless={HEADLESS}）")
-        print(f"[B] 使用 Chrome 用戶資料：{CHROME_USER_DATA_DIR}")
+        is_first_run = not os.path.exists(PLAYWRIGHT_PROFILE_DIR)
 
-        # 使用 launch_persistent_context 繼承 Chrome 登入 Cookie
+        print(f"[B] 啟動 Chrome（headless={HEADLESS}）")
+        print(f"[B] 專屬資料夾：{PLAYWRIGHT_PROFILE_DIR}")
+
+        if is_first_run:
+            print("[B] ⚠️  首次執行！請在瀏覽器中登入 Google 帳號後，關閉瀏覽器再重新執行腳本")
+
+        # 使用獨立的 Playwright 專屬資料夾（不衝突系統 Chrome）
         self._context = await self._playwright.chromium.launch_persistent_context(
-            user_data_dir=CHROME_USER_DATA_DIR,
-            channel="chrome",           # 使用系統安裝的 Chrome
+            user_data_dir=PLAYWRIGHT_PROFILE_DIR,
+            channel="chrome",
             headless=HEADLESS,
             args=[
-                f"--profile-directory={CHROME_PROFILE}",
                 "--no-first-run",
                 "--no-default-browser-check",
             ],
@@ -45,6 +52,17 @@ class BrowserManager:
         )
 
         print("[B] 瀏覽器啟動成功 ✅")
+
+        if is_first_run:
+            # 首次執行：開啟 Google 登入頁面讓用戶手動登入
+            page = await self._context.new_page()
+            await page.goto("https://accounts.google.com")
+            print("[B] 請在瀏覽器中完成 Google 登入，完成後直接關閉瀏覽器視窗")
+            # 等待瀏覽器被手動關閉
+            await self._context.wait_for_event("close", timeout=0)
+            print("[B] 登入完成，請重新執行腳本 ✅")
+            exit(0)
+
         return self._context
 
     async def new_page(self) -> Page:
