@@ -324,49 +324,19 @@ class GeminiResearcher:
         print("[B] 等待 Deep Research 研究計畫出現...")
         await page.wait_for_timeout(8000)
 
-        # 自動捲動到「開始研究」按鈕並點擊
-        # 用 scrollIntoView 確保按鈕在視窗內，再用座標點擊
-        confirmed = await page.evaluate("""
-            () => {
-                const buttons = [...document.querySelectorAll('button, [role="button"]')];
-                const confirmTexts = ['開始研究', 'Start research', '確認', 'Confirm', '繼續'];
-                for (const ct of confirmTexts) {
-                    for (const btn of buttons) {
-                        const t = btn.textContent.trim();
-                        if (t.includes(ct)) {
-                            // 先捲動讓按鈕進入視窗
-                            btn.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                            return { text: t, found: true };
-                        }
-                    }
-                }
-                return null;
-            }
-        """)
+        # ── 點擊空白處重置 Tab 焦點，再 Tab × 7 → Enter 選到「開始研究」──
+        # 用戶確認：點空白處後按 Tab 7 次可選到「開始研究」
+        print("[B] 點擊空白處重置焦點...")
+        await page.mouse.click(100, 300)   # 左側空白區域
+        await page.wait_for_timeout(500)
 
-        if confirmed:
-            await page.wait_for_timeout(1000)  # 等捲動完成
-            # 再次找按鈕並用座標點擊（捲動後座標已更新）
-            btn_pos = await page.evaluate("""
-                () => {
-                    const confirmTexts = ['開始研究', 'Start research', '確認', 'Confirm', '繼續'];
-                    const buttons = [...document.querySelectorAll('button, [role="button"]')];
-                    for (const ct of confirmTexts) {
-                        for (const btn of buttons) {
-                            if (btn.textContent.trim().includes(ct)) {
-                                const r = btn.getBoundingClientRect();
-                                if (r.width > 0 && r.height > 0) {
-                                    return { x: r.x + r.width/2, y: r.y + r.height/2, text: btn.textContent.trim() };
-                                }
-                            }
-                        }
-                    }
-                    return null;
-                }
-            """)
-            if btn_pos:
-                await page.mouse.click(btn_pos['x'], btn_pos['y'])
-                confirmed = btn_pos['text']
+        print("[B] Tab × 7 → Enter 選取「開始研究」...")
+        for i in range(7):
+            await page.keyboard.press("Tab")
+            await page.wait_for_timeout(300)
+        await page.keyboard.press("Enter")
+
+        confirmed = "開始研究"
 
         if confirmed:
             print(f"[B] 已點擊確認按鈕：「{confirmed}」✅，開始真正研究...")
