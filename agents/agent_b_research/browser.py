@@ -39,13 +39,16 @@ class BrowserManager:
             print("[B] ⚠️  首次執行！請在瀏覽器中登入 Google 帳號後，關閉瀏覽器再重新執行腳本")
 
         # 使用獨立的 Playwright 專屬資料夾（不衝突系統 Chrome）
+        # ignore_default_args 移除 --enable-automation 旗標，避免被 Google 偵測為機器人
         self._context = await self._playwright.chromium.launch_persistent_context(
             user_data_dir=PLAYWRIGHT_PROFILE_DIR,
             channel="chrome",
             headless=HEADLESS,
+            ignore_default_args=["--enable-automation", "--disable-infobars"],
             args=[
                 "--no-first-run",
                 "--no-default-browser-check",
+                "--disable-blink-features=AutomationControlled",
             ],
             viewport={"width": 1280, "height": 900},
             locale="zh-TW",
