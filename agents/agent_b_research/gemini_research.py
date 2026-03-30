@@ -133,69 +133,91 @@ class GeminiResearcher:
     async def _enter_deep_research_mode(self, page: Page):
         """
         進入 Deep Research 模式
-        正確流程（從截圖確認）：
-          1. 點擊輸入框底部的「工具」按鈕
-          2. 在彈出選單中點擊「Deep Research」
+        流程：
+          1. 用滑鼠座標精準點擊「工具」按鈕
+          2. 等待下拉選單出現（2秒）
+          3. 方法 A：用 getBoundingClientRect 找 Deep Research 座標後點擊
+          4. 方法 B（備援）：重試最多 3 次，每次增加等待時間
         """
 
-        # ── 先確認是否已經在 Deep Research 模式 ────────────────
-        # （畫面上顯示 "Deep Research ×" chip 代表已啟用）
-        try:
-            chip = page.locator("text=Deep Research").first
-            if await chip.is_visible(timeout=2000):
-                print("[B] Deep Research 已啟用 ✅（偵測到 chip）")
-                return
-        except Exception:
-            pass
-
-        # ── Step A：點擊「工具」按鈕 ────────────────────────────
-        print("[B] 點擊「工具」按鈕...")
-        tool_selectors = [
-            "button:has-text('工具')",
-            "[aria-label*='工具']",
-            "text=工具",
-        ]
-
-        tool_clicked = False
-        for selector in tool_selectors:
-            try:
-                btn = page.locator(selector).first
-                if await btn.is_visible(timeout=3000):
-                    await btn.click()
-                    await page.wait_for_timeout(1000)
-                    tool_clicked = True
-                    print(f"[B] 「工具」按鈕點擊成功 ✅")
-                    break
-            except Exception:
-                continue
-
-        if not tool_clicked:
-            await page.screenshot(path=f"debug_no_tool_btn_{datetime.now().strftime('%H%M%S')}.png")
-            print("[B] ⚠️ 找不到「工具」按鈕，截圖已儲存")
+        # ── 確認是否已在 Deep Research 模式 ─────────────────────
+        dr_rect = await page.evaluate("""
+            () => {
+                for (const el of document.querySelectorAll('*')) {
+                    const rect = el.getBoundingClientRect();
+                    if (
+                        el.textContent.trim() === 'Deep Research' &&
+                        rect.width > 0 && rect.height > 0 &&
+                        el.closest('[class*="chip"], [class*="token"], [class*="badge"]')
+                    ) {
+                        return true;
+                    }
+                }
+                return false;
+            }
+        """)
+        if dr_rect:
+            print("[B] Deep Research 已啟用 ✅")
             return
 
-        # ── Step B：在選單中點擊「Deep Research」───────────────
-        print("[B] 在選單中點擊「Deep Research」...")
-        dr_selectors = [
-            "text=Deep Research",
-            "[aria-label*='Deep Research']",
-            "li:has-text('Deep Research')",
-            "div[role='menuitem']:has-text('Deep Research')",
-        ]
+        # ── 取得「工具」按鈕的螢幕座標 ──────────────────────────
+        print("[B] 取得「工具」按鈕位置...")
+        tool_pos = await page.evaluate("""
+            () => {
+                const btns = [...document.querySelectorAll('button')];
+                const btn = btns.find(b => b.textContent.trim() === '工具');
+                if (!btn) return null;
+                const r = btn.getBoundingClientRect();
+                return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+            }
+        """)
 
-        for selector in dr_selectors:
-            try:
-                item = page.locator(selector).first
-                if await item.is_visible(timeout=3000):
-                    await item.click()
-                    await page.wait_for_timeout(1500)
-                    print("[B] Deep Research 模式啟用 ✅")
-                    return
-            except Exception:
-                continue
+        if not tool_pos:
+            await page.screenshot(path=f"debug_no_tool_{datetime.now().strftime('%H%M%S')}.png")
+            print("[B] ⚠️ 找不到「工具」按鈕")
+            return
 
-        await page.screenshot(path=f"debug_no_dr_menu_{datetime.now().strftime('%H%M%S')}.png")
-        print("[B] ⚠️ 找不到選單中的 Deep Research，截圖已儲存")
+        # ── 點擊「工具」按鈕 ────────────────────────────────────
+        print("[B] 點擊「工具」按鈕...")
+        await page.mouse.click(tool_pos['x'], tool_pos['y'])
+        await page.wait_for_timeout(2000)  # 等選單動畫完成
+
+        # ── 方法 A：座標點擊 Deep Research ──────────────────────
+        print("[B] 方法 A：尋找 Deep Research 座標...")
+        dr_pos = await page.evaluate("""
+            () => {
+                for (const el of document.querySelectorAll('*')) {
+                    const rect = el.getBoundingClientRect();
+                    if (
+                        el.textContent.trim() === 'Deep Research' &&
+                        rect.width > 0 && rect.height > 0
+                    ) {
+                        return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
+                    }
+                }
+                return null;
+            }
+        """)
+
+        if dr_pos:
+            await page.mouse.click(dr_pos['x'], dr_pos['y'])
+            await page.wait_for_timeout(1500)
+            print("[B] Deep Research 點擊成功（方法 A）✅")
+            return
+
+        # ── 方法 B：Tab × 3 + Enter（工具選單第3項）────────────
+        # 用戶確認：點擊「工具」後，按 Tab 3 下可移至 Deep Research
+        print("[B] 方法 B：Tab × 3 + Enter...")
+        await page.screenshot(path=f"debug_before_tab_{datetime.now().strftime('%H%M%S')}.png")
+
+        for _ in range(3):
+            await page.keyboard.press("Tab")
+            await page.wait_for_timeout(400)
+        await page.keyboard.press("Enter")
+        await page.wait_for_timeout(1500)
+
+        print("[B] Tab × 3 + Enter 完成 ✅")
+        await page.screenshot(path=f"debug_after_tab_{datetime.now().strftime('%H%M%S')}.png")
 
     async def _input_prompt(self, page: Page, prompt: str):
         """在 Gemini 輸入框填入提示詞"""
