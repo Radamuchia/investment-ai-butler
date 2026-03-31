@@ -154,7 +154,7 @@ Playwright Codegen 實測確認的關鍵 Selector（2026-03-31）：
 
 ## 與主系統的關係
 
-本模組是 [投資 AI 管家](https://github.com/Radamuncia/investment-ai-butler) 的 Agent B，在獨立 `agent-b` 分支開發。研究報告輸出將整合至 Agent F（數據管理師）統一處理。
+本模組是 [投資 AI 管家](https://github.com/Radamuchia/investment-ai-butler) 的 Agent B，在獨立 `agent-b` 分支開發。研究報告輸出將整合至 Agent F（數據管理師）統一處理。
 
 ---
 
