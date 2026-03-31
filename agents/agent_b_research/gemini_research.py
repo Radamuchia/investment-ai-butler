@@ -1,5 +1,6 @@
 """
 Agent B — Gemini Deep Research 自動化核心
+Selectors 來源：Playwright Codegen 錄製（2026-03-31）
 """
 
 import asyncio
@@ -8,8 +9,9 @@ from datetime import datetime
 from playwright.async_api import Page
 from .browser import BrowserManager
 
-GEMINI_URL = "https://gemini.google.com"
-RESEARCH_TIMEOUT = int(os.getenv("RESEARCH_TIMEOUT", "600")) * 1000  # 轉毫秒
+GEMINI_URL = "https://gemini.google.com/app"
+RESEARCH_TIMEOUT = int(os.getenv("RESEARCH_TIMEOUT", "5400"))  # 秒（預設 90 分鐘）
+REPORT_MIN_CHARS = int(os.getenv("REPORT_MIN_CHARS", "3000"))   # 報告最少字數
 
 
 def build_research_prompt(stock_data: dict) -> str:
@@ -89,7 +91,7 @@ class GeminiResearcher:
         }
 
         try:
-            context = await self.browser_manager.start()
+            await self.browser_manager.start()
             page = await self.browser_manager.new_page()
 
             prompt = build_research_prompt(stock_data)
@@ -109,27 +111,31 @@ class GeminiResearcher:
         return result
 
     async def _run_deep_research(self, page: Page, prompt: str, stock_id: str) -> str:
-        """核心自動化流程"""
+        """核心自動化流程（依 Codegen 錄製順序）"""
 
         # ── Step 1：開啟 Gemini ──────────────────────────────
-        print(f"[B] Step 1：開啟 Gemini...")
+        print("[B] Step 1：開啟 Gemini...")
         await page.goto(GEMINI_URL, wait_until="domcontentloaded")
         await page.wait_for_timeout(3000)
 
-        # ── Step 2：確認使用 PRO 模式（非快捷/複雜）────────────
-        print(f"[B] Step 2：確認 PRO 模式...")
+        # ── Step 2：確認使用 PRO 模式 ────────────────────────
+        print("[B] Step 2：確認 PRO 模式...")
         await self._ensure_pro_mode(page)
 
         # ── Step 3：進入 Deep Research 模式 ─────────────────
-        print(f"[B] Step 3：啟動 Deep Research...")
+        print("[B] Step 3：啟動 Deep Research...")
         await self._enter_deep_research_mode(page)
 
-        # ── Step 4：輸入研究提示詞 ──────────────────────────
-        print(f"[B] Step 4：輸入研究提示詞...")
+        # ── Step 4：輸入研究提示詞並傳送 ──────────────────────
+        print("[B] Step 4：輸入研究提示詞...")
         await self._input_prompt(page, prompt)
 
-        # ── Step 5：等待研究計畫出現並確認，再等最終報告 ────────
-        print(f"[B] Step 5：等待 Deep Research 完成（約 10~15 分鐘）...")
+        # ── Step 5：等待研究計畫並點擊「開始研究」────────────────
+        print("[B] Step 5：確認開始研究...")
+        await self._confirm_start_research(page)
+
+        # ── Step 6：等待研究完成並擷取報告 ──────────────────────
+        print("[B] Step 6：等待 Deep Research 完成（約 10~15 分鐘）...")
         report = await self._wait_for_report(page)
 
         return report
@@ -137,11 +143,11 @@ class GeminiResearcher:
     async def _ensure_pro_mode(self, page: Page):
         """
         確認目前使用 PRO 模式
-        模式順序（用戶確認）：快捷 > 思考型 > pro
-        切換方式：點擊模式按鈕 → ArrowDown × 2 → Enter
-        注意：此 dropdown 只能用 ArrowDown，不能用 Tab
+        Codegen 錄製：
+          1. click [data-test-id="bard-mode-menu-button"]
+          2. click [data-test-id="bard-mode-option-pro"]
         """
-        # 取得目前模式文字
+        # 讀取目前模式文字
         current_mode = await page.evaluate("""
             () => {
                 const btn = document.querySelector('[data-test-id="bard-mode-menu-button"]');
@@ -151,34 +157,18 @@ class GeminiResearcher:
         print(f"[B] 目前模式：{current_mode}")
 
         # 已是 PRO 則跳過
-        pro_keywords = ['pro', 'Pro', 'PRO', '2.5']
+        pro_keywords = ['pro', 'Pro', 'PRO', '2.5 Pro']
         if current_mode and any(kw in current_mode for kw in pro_keywords):
             print("[B] 已是 PRO 模式 ✅")
             return
 
-        # 點擊模式選擇器按鈕（用座標點擊確保精準）
-        print("[B] 切換至 PRO 模式（快捷 → ↓ → 思考型 → ↓ → pro）...")
-        mode_pos = await page.evaluate("""
-            () => {
-                const btn = document.querySelector('[data-test-id="bard-mode-menu-button"]');
-                if (!btn) return null;
-                const r = btn.getBoundingClientRect();
-                return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
-            }
-        """)
+        # 點擊模式選單按鈕
+        print("[B] 切換至 PRO 模式...")
+        await page.locator('[data-test-id="bard-mode-menu-button"]').click()
+        await page.wait_for_timeout(1000)
 
-        if not mode_pos:
-            print("[B] ⚠️ 找不到模式選擇器，略過")
-            return
-
-        await page.mouse.click(mode_pos['x'], mode_pos['y'])
-        await page.wait_for_timeout(1500)
-
-        # 方法 A：ArrowDown × 2 → Enter（快捷 → 思考型 → pro）
-        for _ in range(2):
-            await page.keyboard.press("ArrowDown")
-            await page.wait_for_timeout(400)
-        await page.keyboard.press("Enter")
+        # 直接點擊 PRO 選項（Codegen 錄製到的精確 selector）
+        await page.locator('[data-test-id="bard-mode-option-pro"]').click()
         await page.wait_for_timeout(1500)
 
         # 確認切換成功
@@ -193,202 +183,165 @@ class GeminiResearcher:
     async def _enter_deep_research_mode(self, page: Page):
         """
         進入 Deep Research 模式
-        流程：
-          1. 用滑鼠座標精準點擊「工具」按鈕
-          2. 等待下拉選單出現（2秒）
-          3. 方法 A：用 getBoundingClientRect 找 Deep Research 座標後點擊
-          4. 方法 B（備援）：重試最多 3 次，每次增加等待時間
+        Codegen 錄製：
+          1. get_by_role("button", name="工具", exact=True).click()
+          2. get_by_role("menuitemcheckbox", name="Deep Research").click()
         """
-
-        # ── 確認是否已在 Deep Research 模式 ─────────────────────
-        dr_rect = await page.evaluate("""
-            () => {
-                for (const el of document.querySelectorAll('*')) {
-                    const rect = el.getBoundingClientRect();
-                    if (
-                        el.textContent.trim() === 'Deep Research' &&
-                        rect.width > 0 && rect.height > 0 &&
-                        el.closest('[class*="chip"], [class*="token"], [class*="badge"]')
-                    ) {
-                        return true;
-                    }
-                }
-                return false;
-            }
-        """)
-        if dr_rect:
-            print("[B] Deep Research 已啟用 ✅")
-            return
-
-        # ── 取得「工具」按鈕的螢幕座標 ──────────────────────────
-        print("[B] 取得「工具」按鈕位置...")
-        tool_pos = await page.evaluate("""
-            () => {
-                const btns = [...document.querySelectorAll('button')];
-                const btn = btns.find(b => b.textContent.trim() === '工具');
-                if (!btn) return null;
-                const r = btn.getBoundingClientRect();
-                return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
-            }
-        """)
-
-        if not tool_pos:
-            await page.screenshot(path=f"debug_no_tool_{datetime.now().strftime('%H%M%S')}.png")
-            print("[B] ⚠️ 找不到「工具」按鈕")
-            return
-
-        # ── 點擊「工具」按鈕 ────────────────────────────────────
+        # 點擊「工具」按鈕
         print("[B] 點擊「工具」按鈕...")
-        await page.mouse.click(tool_pos['x'], tool_pos['y'])
-        await page.wait_for_timeout(2000)  # 等選單動畫完成
-
-        # ── 方法 A：座標點擊 Deep Research ──────────────────────
-        print("[B] 方法 A：尋找 Deep Research 座標...")
-        dr_pos = await page.evaluate("""
-            () => {
-                for (const el of document.querySelectorAll('*')) {
-                    const rect = el.getBoundingClientRect();
-                    if (
-                        el.textContent.trim() === 'Deep Research' &&
-                        rect.width > 0 && rect.height > 0
-                    ) {
-                        return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
-                    }
-                }
-                return null;
-            }
-        """)
-
-        if dr_pos:
-            await page.mouse.click(dr_pos['x'], dr_pos['y'])
-            await page.wait_for_timeout(1500)
-            print("[B] Deep Research 點擊成功（方法 A）✅")
-            return
-
-        # ── 方法 B：Tab × 3 + Enter（工具選單第3項）────────────
-        # 用戶確認：點擊「工具」後，按 Tab 3 下可移至 Deep Research
-        print("[B] 方法 B：Tab × 3 + Enter...")
-        await page.screenshot(path=f"debug_before_tab_{datetime.now().strftime('%H%M%S')}.png")
-
-        for _ in range(3):
-            await page.keyboard.press("Tab")
-            await page.wait_for_timeout(400)
-        await page.keyboard.press("Enter")
+        await page.get_by_role("button", name="工具", exact=True).click()
         await page.wait_for_timeout(1500)
 
-        print("[B] Tab × 3 + Enter 完成 ✅")
-        await page.screenshot(path=f"debug_after_tab_{datetime.now().strftime('%H%M%S')}.png")
+        # 點擊「Deep Research」選項
+        print("[B] 選擇「Deep Research」...")
+        await page.get_by_role("menuitemcheckbox", name="Deep Research").click()
+        await page.wait_for_timeout(1500)
+
+        print("[B] Deep Research 模式啟用 ✅")
 
     async def _input_prompt(self, page: Page, prompt: str):
-        """在 Gemini 輸入框填入提示詞"""
-        # Deep Research 啟用後 placeholder 變成「你想研究什麼？」
-        # 優先嘗試 rich text editor，再 fallback 到一般 textarea
-        input_selectors = [
-            "div[contenteditable='true'][role='textbox']",
-            "div[contenteditable='true']",
-            "textarea",
-            "[role='textbox']",
-            "p[data-placeholder]",
-        ]
+        """
+        在 Gemini 輸入框填入提示詞並傳送
+        Codegen 錄製：
+          1. locator(".ql-clipboard").fill(prompt)   ← Quill 編輯器
+          2. get_by_role("button", name="傳送訊息").click()
+        """
+        print("[B] 填入提示詞...")
 
-        for selector in input_selectors:
-            try:
-                element = page.locator(selector).first
-                if await element.is_visible(timeout=3000):
-                    await element.click()
-                    await element.fill(prompt)
-                    await page.wait_for_timeout(1000)
-                    await page.keyboard.press("Enter")
-                    print(f"[B] 提示詞輸入完成 ✅")
-                    return
-            except Exception:
-                continue
+        # 方法 A：Codegen 錄製的 .ql-clipboard（Quill 編輯器）
+        try:
+            clipboard = page.locator(".ql-clipboard")
+            if await clipboard.count() > 0:
+                await clipboard.fill(prompt)
+                await page.wait_for_timeout(800)
+                print("[B] 提示詞填入完成（.ql-clipboard）✅")
+            else:
+                raise Exception("找不到 .ql-clipboard")
+        except Exception:
+            # 方法 B：fallback 到 .ql-editor
+            print("[B] fallback 到 .ql-editor...")
+            editor = page.locator(".ql-editor").first
+            await editor.click()
+            await editor.fill(prompt)
+            await page.wait_for_timeout(800)
+            print("[B] 提示詞填入完成（.ql-editor）✅")
 
-        raise Exception("找不到 Gemini 輸入框")
+        # 點擊「傳送訊息」按鈕（Codegen 錄製）
+        print("[B] 點擊「傳送訊息」...")
+        await page.get_by_role("button", name="傳送訊息").click()
+        await page.wait_for_timeout(2000)
+        print("[B] 訊息已傳送 ✅")
+
+    async def _confirm_start_research(self, page: Page):
+        """
+        等待研究計畫出現，點擊「開始研究」確認按鈕
+        Codegen 錄製：
+          locator('[data-test-id="confirm-button"]').click()
+        """
+        print("[B] 等待研究計畫生成（約 8 秒）...")
+        await page.wait_for_timeout(8000)
+
+        # 等待 confirm-button 出現（最多 30 秒）
+        try:
+            confirm_btn = page.locator('[data-test-id="confirm-button"]')
+            await confirm_btn.wait_for(state="visible", timeout=30000)
+            await confirm_btn.click()
+            print("[B] 「開始研究」已點擊 ✅")
+        except Exception as e:
+            # 截圖方便除錯
+            await page.screenshot(
+                path=f"debug_confirm_{datetime.now().strftime('%H%M%S')}.png"
+            )
+            print(f"[B] ⚠️ 找不到 confirm-button：{e}，嘗試 Tab × 6 備援...")
+
+            # 備援：Tab × 6 + Enter（用戶確認的方式）
+            await page.mouse.click(740, 360)
+            await page.wait_for_timeout(500)
+            for _ in range(6):
+                await page.keyboard.press("Tab")
+                await page.wait_for_timeout(300)
+            await page.keyboard.press("Enter")
+            print("[B] 備援 Tab × 6 + Enter 完成 ✅")
+
+        await asyncio.sleep(3)
 
     async def _wait_for_report(self, page: Page) -> str:
         """
         等待 Deep Research 完成並擷取最終報告
 
         Deep Research 的生命週期：
-          Phase 1（約 10 秒）：顯示「研究計畫」（研究網站清單）→ 不是最終報告
-          Phase 2（約 5~10 分鐘）：實際研究進行中（頁面有 loading 動畫）
-          Phase 3：研究完成，顯示完整報告 → 這才是我們要的
-
-        判斷完成的依據：
-          - 頁面上不再有「正在研究」、「研究網站」等進行中文字
-          - 回應內容超過 2000 字（計畫只有幾百字，報告通常數千字）
+          Phase 1（約 10 秒）：顯示研究計畫 → 已在 _confirm_start_research 處理
+          Phase 2（約 10~15 分鐘）：實際研究進行中
+          Phase 3：研究完成，顯示完整報告
+        判斷完成：頁面出現完成通知 或 報告內容超過 2000 字
         """
-
-        # ── Phase 1：等待研究計畫出現，並自動點擊「確認」─────────
-        print("[B] 等待 Deep Research 研究計畫出現...")
-        await page.wait_for_timeout(8000)
-
-        # ── 點擊空白處重置 Tab 焦點，再 Tab × 7 → Enter 選到「開始研究」──
-        # 用戶確認：點空白處後按 Tab 7 次可選到「開始研究」
-        print("[B] 點擊 (740, 360) 重置焦點...")
-        await page.mouse.click(740, 360)   # 用戶確認的空白重置點
-        await page.wait_for_timeout(500)
-
-        print("[B] Tab × 6 → Enter 選取「開始研究」...")
-        for i in range(6):
-            await page.keyboard.press("Tab")
-            await page.wait_for_timeout(300)
-        await page.keyboard.press("Enter")
-
-        confirmed = "開始研究"
-
-        if confirmed:
-            print(f"[B] 已點擊確認按鈕：「{confirmed}」✅，開始真正研究...")
-        else:
-            print("[B] 未找到確認按鈕（可能不需要確認），繼續等待...")
-
-        # ── Phase 2：等待完成，每 30 秒檢查一次 ──────────────────
-        # 使用 asyncio.sleep 取代 page.wait_for_timeout
-        # 原因：page.wait_for_timeout 依賴 page 物件，頁面導航後會失效
-        #       asyncio.sleep 完全獨立於頁面狀態，不會因導航而中斷
-        max_wait = RESEARCH_TIMEOUT
-        interval = 30          # 秒
+        interval = 30   # 每 30 秒檢查一次
         elapsed = 0
 
-        while elapsed < max_wait:
-            await asyncio.sleep(interval)  # 不依賴 page，安全等待
+        while elapsed < RESEARCH_TIMEOUT:
+            await asyncio.sleep(interval)  # asyncio.sleep：不依賴 page，不受導航影響
             elapsed += interval
             minutes = elapsed // 60
             seconds = elapsed % 60
 
-            # 嘗試讀取頁面狀態（失敗就繼續等，不中斷）
             try:
                 status = await page.evaluate("""
                     () => {
                         const text = document.body.innerText || '';
-                        const busyKw = ['研究網站', 'Researching', '正在研究', '搜尋中', 'Searching'];
-                        const isBusy = busyKw.some(kw => text.includes(kw));
-                        const doneKw = ['研究完成', '已完成', 'Research complete', '查看報告'];
+
+                        // ── 進行中判斷：有 spinner 元素 或 進行中文字 ──
+                        const hasSpinner = !![
+                            '[class*="spinner"]',
+                            '[class*="loading"]',
+                            '[aria-label*="載入"]',
+                            '[aria-label*="loading"]',
+                            '[aria-busy="true"]',
+                        ].find(sel => document.querySelector(sel));
+
+                        const busyKw = [
+                            '正在研究', 'Researching',
+                            '搜尋中', 'Searching',
+                            '研究網站',
+                        ];
+                        const hasBusyText = busyKw.some(kw => text.includes(kw));
+
+                        // ── 完成判斷：Gemini 完成後固定顯示的句子 ──
+                        // ⚠️ 不可用「已完成」（研究步驟進行中也會出現）
+                        const doneKw = [
+                            '我已經完成研究',     // Gemini 完成後的固定回覆（繁中）
+                            'I\'ve finished',    // 英文版
+                            'Research complete', // 英文備用
+                        ];
                         const isDone = doneKw.some(kw => text.includes(kw));
-                        const hasLoader = !!document.querySelector(
-                            '[aria-label*="loading"], [class*="loading"], [class*="spinner"]'
-                        );
-                        return { isBusy, isDone, hasLoader };
+
+                        return {
+                            isBusy: hasSpinner || hasBusyText,
+                            isDone,
+                        };
                     }
                 """)
-            except Exception as e:
-                print(f"[B] 等待中... {minutes}分{seconds}秒（頁面狀態暫時無法讀取）")
+            except Exception:
+                print(f"[B] 研究中... {minutes}分{seconds}秒（頁面暫時無法讀取）")
                 continue
 
             if status['isDone']:
-                print(f"[B] ✅ 偵測到完成通知！（{minutes}分{seconds}秒）")
-                await asyncio.sleep(2)
-                break
-
-            if status['isBusy'] or status['hasLoader']:
-                print(f"[B] 研究進行中... {minutes}分{seconds}秒（預計 10~15 分鐘）")
+                print(f"[B] ✅ 偵測到「研究完成」通知（{minutes}分{seconds}秒），等待渲染...")
+                await asyncio.sleep(5)
+                content = await self._extract_report(page)
+                if content and len(content) > REPORT_MIN_CHARS:
+                    return content
+                # 報告還在渲染，繼續等
+                print(f"[B] 報告渲染中（目前 {len(content) if content else 0} 字），繼續等待...")
                 continue
 
-            # 無 loading 也無完成通知 → 嘗試擷取看字數
+            if status['isBusy']:
+                print(f"[B] 研究進行中... {minutes}分{seconds}秒")
+                continue
+
+            # isBusy=False 且 isDone=False → 嘗試字數判斷（可能完成但沒有通知字樣）
             content = await self._extract_report(page)
-            if content and len(content) > 2000:
-                print(f"[B] ✅ 報告完成（{len(content)} 字，{minutes}分{seconds}秒）")
+            if content and len(content) > REPORT_MIN_CHARS:
+                print(f"[B] ✅ 報告完成（字數判斷：{len(content)} 字，{minutes}分{seconds}秒）")
                 return content
 
             print(f"[B] 等待中... {minutes}分{seconds}秒")
@@ -401,13 +354,39 @@ class GeminiResearcher:
 
         raise Exception(f"Deep Research 超過 {RESEARCH_TIMEOUT} 秒仍未完成")
 
+    def _clean_report(self, text: str) -> str:
+        """
+        移除報告頂部的 UI 按鈕文字（目錄、分享及匯出、建立）
+        研究過程的思考步驟（Researching websites...）保留，可作參考
+        """
+        import re
+        # 移除頂部 UI 按鈕列：「標題\n目錄\n分享及匯出\n建立\n」
+        ui_header = r'^[^\n]*\n目錄\n分享及匯出\n建立\n'
+        text = re.sub(ui_header, '', text, count=1)
+        return text.strip()
+
     async def _extract_report(self, page: Page) -> str:
-        """擷取頁面上的報告文字"""
+        """
+        擷取 Deep Research 完成後右側面板的報告文字
+        Gemini 完成後報告顯示在右側獨立面板（非左側聊天區）
+        """
+        # ── 優先：針對右側報告面板的 selector ──────────────────
         report_selectors = [
+            # ✅ 確認有效（Chrome 實測 2026-03-31）
+            "deep-research-immersive-panel",
+            # 備用
+            "response-container",
+            ".response-container",
+            "[class*='deep-research']",
+            "[class*='report-content']",
+            "[class*='research-report']",
+            # 一般 Gemini response selector
             ".response-content",
             "[data-message-author-role='model']",
             ".model-response",
+            "model-response",
             "article",
+            "[class*='markdown']",
         ]
 
         for selector in report_selectors:
@@ -415,12 +394,55 @@ class GeminiResearcher:
                 elements = page.locator(selector)
                 count = await elements.count()
                 if count > 0:
-                    # 取最後一個（最新的回應）
                     last = elements.nth(count - 1)
                     text = await last.inner_text()
-                    if text and len(text) > 100:
+                    if text and len(text) > REPORT_MIN_CHARS:
+                        text = self._clean_report(text)
+                        print(f"[B] 報告擷取成功（{selector}，{len(text)} 字）")
                         return text
             except Exception:
                 continue
 
+        # ── JS fallback：找頁面上最長的文字區塊（排除左側聊天） ──
+        print("[B] 嘗試 JS fallback 擷取右側面板...")
+        try:
+            text = await page.evaluate("""
+                () => {
+                    // 取所有葉子層級的大型文字容器，通常報告在最大的一塊
+                    const candidates = [...document.querySelectorAll(
+                        'div, section, article, main'
+                    )];
+                    let best = { len: 0, text: '' };
+                    for (const el of candidates) {
+                        // 跳過有大量子元素的容器（是版面節點，不是內容節點）
+                        if (el.children.length > 20) continue;
+                        const t = (el.innerText || '').trim();
+                        if (t.length > best.len && t.length < 500000) {
+                            best = { len: t.length, text: t };
+                        }
+                    }
+                    return best.text;
+                }
+            """)
+            if text and len(text) > REPORT_MIN_CHARS:
+                print(f"[B] JS fallback 擷取成功（{len(text)} 字）")
+                return text
+        except Exception as e:
+            print(f"[B] JS fallback 失敗：{e}")
+
+        # ── 最終 fallback：整頁文字（去除雜訊） ──────────────────
+        print("[B] 嘗試擷取整頁文字...")
+        try:
+            text = await page.evaluate("() => document.body.innerText")
+            if text and len(text) > REPORT_MIN_CHARS:
+                print(f"[B] 整頁文字擷取（{len(text)} 字），儲存供人工確認")
+                return text
+        except Exception:
+            pass
+
+        # 截圖方便除錯
+        await page.screenshot(
+            path=f"debug_extract_{datetime.now().strftime('%H%M%S')}.png"
+        )
+        print("[B] ⚠️ 所有擷取方法失敗，已儲存截圖")
         return None

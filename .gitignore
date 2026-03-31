@@ -30,3 +30,11 @@ Thumbs.db
 .vscode/
 .idea/
 .chrome-profile/
+
+# 研究報告輸出（本地產生，不進版控）
+reports/
+report_*.txt
+report_*.json
+
+# 除錯截圖
+debug_*.png
