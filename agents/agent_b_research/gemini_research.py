@@ -340,47 +340,45 @@ class GeminiResearcher:
 
         if confirmed:
             print(f"[B] 已點擊確認按鈕：「{confirmed}」✅，開始真正研究...")
-            await page.wait_for_timeout(3000)
         else:
             print("[B] 未找到確認按鈕（可能不需要確認），繼續等待...")
 
-        # ── Phase 2：等待完成通知，每 30 秒檢查一次 ─────────────
-        # Deep Research 需要 10~15 分鐘，完成後會有通知
+        # ── Phase 2：等待完成，每 30 秒檢查一次 ──────────────────
+        # 使用 asyncio.sleep 取代 page.wait_for_timeout
+        # 原因：page.wait_for_timeout 依賴 page 物件，頁面導航後會失效
+        #       asyncio.sleep 完全獨立於頁面狀態，不會因導航而中斷
         max_wait = RESEARCH_TIMEOUT
-        interval = 30000   # 每 30 秒檢查一次
+        interval = 30          # 秒
         elapsed = 0
 
         while elapsed < max_wait:
-            await page.wait_for_timeout(interval)
+            await asyncio.sleep(interval)  # 不依賴 page，安全等待
             elapsed += interval
-            minutes = elapsed // 60000
-            seconds = (elapsed % 60000) // 1000
+            minutes = elapsed // 60
+            seconds = elapsed % 60
 
-            # 偵測完成通知 或 loading 消失
-            status = await page.evaluate("""
-                () => {
-                    const text = document.body.innerText || '';
-
-                    // 仍在研究中的關鍵字
-                    const busyKw = ['研究網站', 'Researching', '正在研究', '搜尋中', 'Searching'];
-                    const isBusy = busyKw.some(kw => text.includes(kw));
-
-                    // 完成通知的關鍵字
-                    const doneKw = ['研究完成', '已完成', 'Research complete', '查看報告'];
-                    const isDone = doneKw.some(kw => text.includes(kw));
-
-                    // 檢查 loading 動畫是否還在
-                    const hasLoader = document.querySelector(
-                        '[aria-label*="loading"], [class*="loading"], [class*="spinner"]'
-                    );
-
-                    return { isBusy, isDone, hasLoader: !!hasLoader };
-                }
-            """)
+            # 嘗試讀取頁面狀態（失敗就繼續等，不中斷）
+            try:
+                status = await page.evaluate("""
+                    () => {
+                        const text = document.body.innerText || '';
+                        const busyKw = ['研究網站', 'Researching', '正在研究', '搜尋中', 'Searching'];
+                        const isBusy = busyKw.some(kw => text.includes(kw));
+                        const doneKw = ['研究完成', '已完成', 'Research complete', '查看報告'];
+                        const isDone = doneKw.some(kw => text.includes(kw));
+                        const hasLoader = !!document.querySelector(
+                            '[aria-label*="loading"], [class*="loading"], [class*="spinner"]'
+                        );
+                        return { isBusy, isDone, hasLoader };
+                    }
+                """)
+            except Exception as e:
+                print(f"[B] 等待中... {minutes}分{seconds}秒（頁面狀態暫時無法讀取）")
+                continue
 
             if status['isDone']:
                 print(f"[B] ✅ 偵測到完成通知！（{minutes}分{seconds}秒）")
-                await page.wait_for_timeout(2000)
+                await asyncio.sleep(2)
                 break
 
             if status['isBusy'] or status['hasLoader']:
@@ -401,7 +399,7 @@ class GeminiResearcher:
         if content:
             return content
 
-        raise Exception(f"Deep Research 超過 {RESEARCH_TIMEOUT//1000} 秒仍未完成")
+        raise Exception(f"Deep Research 超過 {RESEARCH_TIMEOUT} 秒仍未完成")
 
     async def _extract_report(self, page: Page) -> str:
         """擷取頁面上的報告文字"""
