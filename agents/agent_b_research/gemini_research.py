@@ -8,6 +8,7 @@ import os
 from datetime import datetime
 from playwright.async_api import Page
 from .browser import BrowserManager
+from .prompt_designer import design_research_prompt
 
 GEMINI_URL = "https://gemini.google.com/app"
 RESEARCH_TIMEOUT = int(os.getenv("RESEARCH_TIMEOUT", "5400"))  # 秒（預設 90 分鐘）
@@ -94,7 +95,7 @@ class GeminiResearcher:
             await self.browser_manager.start()
             page = await self.browser_manager.new_page()
 
-            prompt = build_research_prompt(stock_data)
+            prompt = design_research_prompt(stock_data)
             report = await self._run_deep_research(page, prompt, stock_id)
 
             result["report"] = report
