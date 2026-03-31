@@ -1,0 +1,84 @@
+{
+  "description": "每日深度研究觀察清單",
+  "stocks": [
+    {
+      "stock_id": "3023",
+      "company_name": "信邦",
+      "industry": "電子零組件",
+      "market": "TW"
+    },
+    {
+      "stock_id": "4104",
+      "company_name": "佳醫",
+      "industry": "醫療器材",
+      "market": "TW"
+    },
+    {
+      "stock_id": "4107",
+      "company_name": "邦特",
+      "industry": "醫療器材",
+      "market": "TW"
+    },
+    {
+      "stock_id": "6263",
+      "company_name": "普萊德",
+      "industry": "光通訊",
+      "market": "TW"
+    },
+    {
+      "stock_id": "6561",
+      "company_name": "是方",
+      "industry": "電信服務",
+      "market": "TW"
+    },
+    {
+      "stock_id": "ADBE",
+      "company_name": "Adobe Inc",
+      "industry": "企業軟體／創意工具",
+      "market": "US"
+    },
+    {
+      "stock_id": "FISV",
+      "company_name": "Fiserv Inc",
+      "industry": "金融科技／支付",
+      "market": "US"
+    },
+    {
+      "stock_id": "LNG",
+      "company_name": "Cheniere Energy Inc",
+      "industry": "液化天然氣",
+      "market": "US"
+    },
+    {
+      "stock_id": "OXY",
+      "company_name": "西方石油 Occidental Petroleum",
+      "industry": "石油天然氣",
+      "market": "US"
+    },
+    {
+      "stock_id": "PSX",
+      "company_name": "Phillips 66",
+      "industry": "石油煉製",
+      "market": "US"
+    },
+    {
+      "stock_id": "CROX",
+      "company_name": "Crocs Inc",
+      "industry": "消費品／鞋類",
+      "market": "US"
+    },
+    {
+      "stock_id": "ASML",
+      "company_name": "ASML 艾斯摩爾",
+      "industry": "半導體設備",
+      "market": "US"
+    },
+    {
+      "stock_id": "MU",
+      "company_name": "Micron Technology 美光",
+      "industry": "記憶體半導體",
+      "market": "US"
+    }
+  ],
+  "note": "在此新增或移除股票，排程每天凌晨 1 點自動讀取此清單執行研究。market: TW=台股, US=美股"
+}

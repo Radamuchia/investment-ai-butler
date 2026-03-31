@@ -11,6 +11,12 @@ Agent B — CLI 多股票研究腳本
     # 多股票（依序執行）
     python run_research.py --stock 2330 2454 2317
 
+    # 從 watchlist.json 讀取（排程用）
+    python run_research.py --watchlist
+
+    # 自訂 watchlist 路徑
+    python run_research.py --watchlist --watchlist-file ./my_watchlist.json
+
     # 自訂超時（秒）
     RESEARCH_TIMEOUT=3600 python run_research.py --stock 2330
 
@@ -128,12 +134,22 @@ async def main():
     parser = argparse.ArgumentParser(
         description="Agent B — Gemini Deep Research 自動化"
     )
-    parser.add_argument(
+    group = parser.add_mutually_exclusive_group(required=True)
+    group.add_argument(
         "--stock",
         nargs="+",
-        required=True,
         metavar="STOCK_ID",
         help="股票代碼，可輸入多個（例：2330 2454 2317）",
+    )
+    group.add_argument(
+        "--watchlist",
+        action="store_true",
+        help="從 watchlist.json 讀取股票清單（排程模式）",
+    )
+    parser.add_argument(
+        "--watchlist-file",
+        default="./watchlist.json",
+        help="watchlist 路徑（預設：./watchlist.json）",
     )
     parser.add_argument(
         "--output",
@@ -142,7 +158,40 @@ async def main():
     )
     args = parser.parse_args()
 
-    stocks = args.stock
+    # 決定股票清單
+    if args.watchlist:
+        watchlist_path = Path(args.watchlist_file)
+        if not watchlist_path.exists():
+            print(f"❌ 找不到 watchlist 檔案：{watchlist_path}")
+            sys.exit(1)
+        with open(watchlist_path, encoding="utf-8") as f:
+            data = json.load(f)
+        raw = data.get("stocks", [])
+        if not raw:
+            print("❌ watchlist.json 中沒有股票代碼")
+            sys.exit(1)
+        # 支援兩種格式：字串陣列 ["2330"] 或物件陣列 [{"stock_id": "2330", ...}]
+        stocks = [s if isinstance(s, str) else s["stock_id"] for s in raw]
+        # 將 watchlist 的詳細資料寫入 STOCK_DATABASE（優先於預設值）
+        for item in raw:
+            if isinstance(item, dict):
+                sid = item["stock_id"]
+                STOCK_DATABASE[sid] = {
+                    "stock_id": sid,
+                    "company_name": item.get("company_name", sid),
+                    "industry": item.get("industry", "N/A"),
+                    "eps": "N/A",
+                    "roe": "N/A",
+                    "gross_margin": "N/A",
+                    "revenue_yoy": "N/A",
+                    "fcf": "N/A",
+                    "interest_rate": 4.5,
+                    "cpi": 2.8,
+                }
+        print(f"  📋 從 {watchlist_path} 載入 {len(stocks)} 支股票")
+    else:
+        stocks = args.stock
+
     output_dir = args.output
 
     print("\n" + "=" * 60)
