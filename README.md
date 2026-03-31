@@ -63,8 +63,8 @@ Gemini Deep Research 目前無公開 API，Agent B 使用 Playwright RPA 操控�
 
 | Repo | 分支 | 內容 |
 |------|------|------|
-| [investment-ai-butler](https://github.com/Radamuncia/investment-ai-butler) | `main` | 主後端、文檔、Agent F |
-| [investment-ai-butler](https://github.com/Radamuncia/investment-ai-butler) | `agent-b` | Agent B 獨立開發環境 |
+| [investment-ai-butler](https://github.com/Radamuchia/investment-ai-butler) | `main` | 主後端、文檔、Agent F |
+| [investment-ai-butler](https://github.com/Radamuchia/investment-ai-butler) | `agent-b` | Agent B 獨立開發環境 |
 
 Agent B 在獨立分支開發的原因：需要真實 Chrome 瀏覽器環境與 Google 登入 Session，資源需求與主後端不同。
 
@@ -77,12 +77,12 @@ Agent B 在獨立分支開發的原因：需要真實 Chrome 瀏覽器環境與 
 最快速的入口——自動生成股票深度研究報告：
 
 ```bash
-git clone https://github.com/Radamuncia/investment-ai-butler.git -b agent-b investment-ai-butler-agent-b
+git clone https://github.com/Radamuchia/investment-ai-butler.git -b agent-b investment-ai-butler-agent-b
 cd investment-ai-butler-agent-b
 bash setup.sh
 ```
 
-詳細說明見 [Agent B README](https://github.com/Radamuncia/investment-ai-butler/blob/agent-b/README.md)。
+詳細說明見 [Agent B README](https://github.com/Radamuchia/investment-ai-butler/blob/agent-b/README.md)。
 
 ---
 
