@@ -96,7 +96,8 @@ class GeminiResearcher:
             page = await self.browser_manager.new_page()
 
             prompt = design_research_prompt(stock_data)
-            report = await self._run_deep_research(page, prompt, stock_id)
+            context = self.browser_manager._context
+            report = await self._run_deep_research(page, prompt, stock_id, context)
 
             result["report"] = report
             result["status"] = "success"
@@ -111,7 +112,7 @@ class GeminiResearcher:
 
         return result
 
-    async def _run_deep_research(self, page: Page, prompt: str, stock_id: str) -> str:
+    async def _run_deep_research(self, page: Page, prompt: str, stock_id: str, context=None) -> str:
         """核心自動化流程（依 Codegen 錄製順序）"""
 
         # ── Step 1：開啟 Gemini ──────────────────────────────
@@ -137,7 +138,7 @@ class GeminiResearcher:
 
         # ── Step 6：等待研究完成並擷取報告 ──────────────────────
         print("[B] Step 6：等待 Deep Research 完成（約 10~15 分鐘）...")
-        report = await self._wait_for_report(page)
+        report = await self._wait_for_report(page, context)
 
         return report
 
@@ -266,7 +267,7 @@ class GeminiResearcher:
 
         await asyncio.sleep(3)
 
-    async def _wait_for_report(self, page: Page) -> str:
+    async def _wait_for_report(self, page: Page, context=None) -> str:
         """
         等待 Deep Research 完成並擷取最終報告
 
@@ -285,44 +286,68 @@ class GeminiResearcher:
             minutes = elapsed // 60
             seconds = elapsed % 60
 
+            # Gemini 開始研究後會導航至新 URL，需從 context 取得最新 page
             try:
-                status = await page.evaluate("""
-                    () => {
-                        const text = document.body.innerText || '';
-
-                        // ── 進行中判斷：有 spinner 元素 或 進行中文字 ──
-                        const hasSpinner = !![
-                            '[class*="spinner"]',
-                            '[class*="loading"]',
-                            '[aria-label*="載入"]',
-                            '[aria-label*="loading"]',
-                            '[aria-busy="true"]',
-                        ].find(sel => document.querySelector(sel));
-
-                        const busyKw = [
-                            '正在研究', 'Researching',
-                            '搜尋中', 'Searching',
-                            '研究網站',
-                        ];
-                        const hasBusyText = busyKw.some(kw => text.includes(kw));
-
-                        // ── 完成判斷：Gemini 完成後固定顯示的句子 ──
-                        // ⚠️ 不可用「已完成」（研究步驟進行中也會出現）
-                        const doneKw = [
-                            '我已經完成研究',     // Gemini 完成後的固定回覆（繁中）
-                            'I\'ve finished',    // 英文版
-                            'Research complete', // 英文備用
-                        ];
-                        const isDone = doneKw.some(kw => text.includes(kw));
-
-                        return {
-                            isBusy: hasSpinner || hasBusyText,
-                            isDone,
-                        };
-                    }
-                """)
+                if context and context.pages:
+                    page = context.pages[-1]
             except Exception:
-                print(f"[B] 研究中... {minutes}分{seconds}秒（頁面暫時無法讀取）")
+                pass
+
+            # 等待頁面進入穩定狀態（解決 SPA 導航後 execution context destroyed 問題）
+            try:
+                await page.wait_for_load_state('domcontentloaded', timeout=10000)
+            except Exception:
+                pass
+
+            # evaluate 加 retry 機制（最多 3 次，間隔 2 秒）
+            JS_POLL = """
+                () => {
+                    const text = document.body.innerText || '';
+
+                    // ── 進行中判斷：有 spinner 元素 或 進行中文字 ──
+                    const hasSpinner = !![
+                        '[class*="spinner"]',
+                        '[class*="loading"]',
+                        '[aria-label*="載入"]',
+                        '[aria-label*="loading"]',
+                        '[aria-busy="true"]',
+                    ].find(sel => document.querySelector(sel));
+
+                    const busyKw = [
+                        '正在研究', 'Researching',
+                        '搜尋中', 'Searching',
+                        '研究網站',
+                    ];
+                    const hasBusyText = busyKw.some(kw => text.includes(kw));
+
+                    // ── 完成判斷：Gemini 完成後固定顯示的句子 ──
+                    // ⚠️ 不可用「已完成」（研究步驟進行中也會出現）
+                    const doneKw = [
+                        '我已經完成研究',     // Gemini 完成後的固定回覆（繁中）
+                        "I've finished",    // 英文版
+                        'Research complete', // 英文備用
+                    ];
+                    const isDone = doneKw.some(kw => text.includes(kw));
+
+                    return {
+                        isBusy: hasSpinner || hasBusyText,
+                        isDone,
+                    };
+                }
+            """
+            status = None
+            last_err = None
+            for _attempt in range(3):
+                try:
+                    status = await page.evaluate(JS_POLL)
+                    break
+                except Exception as e:
+                    last_err = e
+                    await asyncio.sleep(2)
+
+            if status is None:
+                err_type = type(last_err).__name__ if last_err else 'Unknown'
+                print(f"[B] 研究中... {minutes}分{seconds}秒（頁面暫時無法讀取: {err_type}）")
                 continue
 
             if status['isDone']:

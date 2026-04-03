@@ -39,14 +39,13 @@
       "backlog_evidence": "AI 資料中心光模組需求爆發"
     },
     {
-      "stock_id": "6561",
-      "company_name": "是方",
-      "industry": "電信服務",
+      "stock_id": "3661",
+      "company_name": "世芯-KY",
+      "industry": "半導體／IC設計",
       "market": "TW",
-      "category": "建設期",
+      "category": "產能開出",
       "moat_level": "強",
-      "key_risks": "IDC 建設資本支出壓力、客戶進駐速度",
-      "backlog_evidence": "AI 算力需求帶動 IDC 需求"
+      "key_risks": "客戶集中度、ASIC 專案週期波動、地緣政治風險"
     },
     {
       "stock_id": "ADBE",
